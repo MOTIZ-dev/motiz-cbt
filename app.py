@@ -1,195 +1,226 @@
-from flask import Flask, render_template_string, request, session
+# Bet Wave Casino - Created by MOTIZ
+# Full MSport Clone: Virtual + Instant League + Mines + Aviator + Spin + CoinFlip + Crash
+
+import os, json, random, string, sqlalchemy as sa, hashlib
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime, timedelta
+from flask import Flask, request, redirect, session, jsonify, render_template_string
 from markupsafe import Markup
-import random
+import pytz
 
 app = Flask(__name__)
-app.secret_key = "motiz_cbt_secret_4637"
+app.secret_key = os.environ.get('SECRET_KEY', "betwave-motiz-2026")
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL: raise Exception("DATABASE_URL not set")
+if DATABASE_URL.startswith("postgres://"): DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True)
+DBSession = sessionmaker(bind=engine)
+NIG_TZ = pytz.timezone('Africa/Lagos')
 
-CBT_QUESTIONS = {
-    "Math": [
-        {"q": "What is 25 x 4?", "options": ["80", "100", "120", "90"], "ans": "100"},
-        {"q": "Solve: 2x + 5 = 15", "options": ["3", "4", "5", "6"], "ans": "5"},
-        {"q": "What is 15% of 200?", "options": ["20", "25", "30", "35"], "ans": "30"},
-        {"q": "Factorize: x^2 - 9", "options": ["(x-3)(x+3)", "(x-9)(x+1)", "(x-3)^2", "(x+9)(x-1)"], "ans": "(x-3)(x+3)"},
-        {"q": "What is the LCM of 4 and 6?", "options": ["8", "10", "12", "24"], "ans": "12"},
-        {"q": "Convert 0.75 to fraction", "options": ["1/2", "2/3", "3/4", "4/5"], "ans": "3/4"},
-        {"q": "Area of rectangle 5cm by 8cm?", "options": ["13cm2", "40cm2", "26cm2", "45cm2"], "ans": "40cm2"},
-        {"q": "What is 2^3?", "options": ["6", "8", "9", "4"], "ans": "8"},
-        {"q": "Mean of 2,4,6,8?", "options": ["4", "5", "6", "7"], "ans": "5"},
-        {"q": "Solve: 3y - 7 = 8", "options": ["3", "4", "5", "6"], "ans": "5"}
-    ],
-    "English": [
-        {"q": "Choose correct spelling", "options": ["Accomodate", "Accommodation", "Acommodation", "Acomodation"], "ans": "Accommodation"},
-        {"q": "Opposite of Brave", "options": ["Strong", "Coward", "Weak", "Foolish"], "ans": "Coward"},
-        {"q": "Which is a noun? The boy ran", "options": ["ran", "quickly", "boy", "the"], "ans": "boy"},
-        {"q": "Past tense of Go", "options": ["Goed", "Went", "Gone", "Going"], "ans": "Went"},
-        {"q": "Synonym of Happy", "options": ["Sad", "Joyful", "Angry", "Tired"], "ans": "Joyful"},
-        {"q": "She ___ to school yesterday", "options": ["go", "goes", "went", "gone"], "ans": "went"},
-        {"q": "Figure of speech in The sun smiled", "options": ["Simile", "Metaphor", "Personification", "Alliteration"], "ans": "Personification"},
-        {"q": "Plural of Child", "options": ["Childs", "Children", "Childes", "Childrens"], "ans": "Children"},
-        {"q": "Which is an adjective?", "options": ["Run", "Beautiful", "Quickly", "And"], "ans": "Beautiful"},
-        {"q": "Correct sentence?", "options": ["Me and him went", "Him and I went", "He and I went", "I and he went"], "ans": "He and I went"}
-    ],
-    "Physics": [
-        {"q": "SI unit of Force", "options": ["Joule", "Watt", "Newton", "Pascal"], "ans": "Newton"},
-        {"q": "Speed equals", "options": ["Distance/Time", "Time/Distance", "Distance x Time", "Mass x Velocity"], "ans": "Distance/Time"},
-        {"q": "Which is NOT vector?", "options": ["Velocity", "Force", "Mass", "Displacement"], "ans": "Mass"},
-        {"q": "Unit of Power", "options": ["Newton", "Joule", "Watt", "Volt"], "ans": "Watt"},
-        {"q": "Acceleration unit", "options": ["m/s", "m/s2", "kg", "N"], "ans": "m/s2"},
-        {"q": "Light travels fastest in?", "options": ["Water", "Glass", "Air", "Vacuum"], "ans": "Vacuum"},
-        {"q": "Instrument for current", "options": ["Voltmeter", "Ammeter", "Barometer", "Thermometer"], "ans": "Ammeter"},
-        {"q": "Energy in moving object", "options": ["Potential", "Kinetic", "Chemical", "Heat"], "ans": "Kinetic"},
-        {"q": "1 Horse Power equals how many Watts", "options": ["746", "640", "1000", "500"], "ans": "746"},
-        {"q": "Sound cannot travel through", "options": ["Air", "Water", "Steel", "Vacuum"], "ans": "Vacuum"}
-    ],
-    "Chemistry": [
-        {"q": "Symbol for Sodium", "options": ["Na", "So", "S", "Sn"], "ans": "Na"},
-        {"q": "H2O is", "options": ["Salt", "Water", "Oxygen", "CO2"], "ans": "Water"},
-        {"q": "Acids turn blue litmus", "options": ["Red", "Green", "Yellow", "No change"], "ans": "Red"},
-        {"q": "Atomic number of Oxygen", "options": ["6", "7", "8", "9"], "ans": "8"},
-        {"q": "Gas used in fire extinguisher", "options": ["O2", "N2", "CO2", "H2"], "ans": "CO2"},
-        {"q": "pH of pure water", "options": ["5", "6", "7", "8"], "ans": "7"},
-        {"q": "Example of noble gas", "options": ["O2", "N2", "He", "H2"], "ans": "He"},
-        {"q": "Rust is", "options": ["FeO", "Fe2O3", "Fe3O4", "FeS"], "ans": "Fe2O3"},
-        {"q": "Valency of Carbon", "options": ["2", "3", "4", "5"], "ans": "4"},
-        {"q": "Acid in lemon", "options": ["HCl", "H2SO4", "Citric acid", "Nitric acid"], "ans": "Citric acid"}
-    ],
-    "Biology": [
-        {"q": "Powerhouse of cell", "options": ["Nucleus", "Mitochondria", "Ribosome", "Chloroplast"], "ans": "Mitochondria"},
-        {"q": "Human heart chambers", "options": ["2", "3", "4", "5"], "ans": "4"},
-        {"q": "Plants make food by", "options": ["Respiration", "Photosynthesis", "Transpiration", "Digestion"], "ans": "Photosynthesis"},
-        {"q": "Largest organ in body", "options": ["Liver", "Brain", "Skin", "Heart"], "ans": "Skin"},
-        {"q": "Blood cells that fight infection", "options": ["RBC", "WBC", "Platelets", "Plasma"], "ans": "WBC"},
-        {"q": "Process of cell division", "options": ["Mitosis", "Osmosis", "Diffusion", "Respiration"], "ans": "Mitosis"},
-        {"q": "Green pigment in plants", "options": ["Carotene", "Chlorophyll", "Xanthophyll", "Anthocyanin"], "ans": "Chlorophyll"},
-        {"q": "Kidney function", "options": ["Digestion", "Excretion", "Respiration", "Circulation"], "ans": "Excretion"},
-        {"q": "DNA stands for", "options": ["Deoxyribonucleic Acid", "Dinitric Acid", "Diethyl Acid", "Deoxy Acid"], "ans": "Deoxyribonucleic Acid"},
-        {"q": "Vitamin for healthy bones", "options": ["A", "B", "C", "D"], "ans": "D"}
-    ],
-    "Geography": [
-        {"q": "Capital of Nigeria", "options": ["Lagos", "Abuja", "Kano", "PH"], "ans": "Abuja"},
-        {"q": "Largest ocean", "options": ["Atlantic", "Indian", "Arctic", "Pacific"], "ans": "Pacific"},
-        {"q": "Instrument for rainfall", "options": ["Thermometer", "Barometer", "Rain gauge", "Hygrometer"], "ans": "Rain gauge"},
-        {"q": "Longest river in Africa", "options": ["Niger", "Congo", "Nile", "Zambezi"], "ans": "Nile"},
-        {"q": "Desert in Northern Nigeria", "options": ["Kalahari", "Sahara", "Namib", "Gobi"], "ans": "Sahara"},
-        {"q": "Earth rotation causes", "options": ["Seasons", "Day and Night", "Tides", "Wind"], "ans": "Day and Night"},
-        {"q": "Plateau State is known for", "options": ["Oil", "Tin mining", "Cocoa", "Cotton"], "ans": "Tin mining"},
-        {"q": "Equator passes through", "options": ["Asia", "Africa", "Europe", "Antarctica"], "ans": "Africa"},
-        {"q": "Map scale 1 to 100000 means", "options": ["1cm=1km", "1cm=10km", "1cm=100km", "1cm=1000km"], "ans": "1cm=1km"},
-        {"q": "Harmattan wind comes from", "options": ["Atlantic", "Sahara", "Indian Ocean", "Arctic"], "ans": "Sahara"}
-    ],
-    "Live stock farming": [
-        {"q": "Animal that gives wool", "options": ["Cow", "Sheep", "Goat", "Pig"], "ans": "Sheep"},
-        {"q": "Housing for poultry", "options": ["Pen", "Stable", "Piggery", "Poultry house"], "ans": "Poultry house"},
-        {"q": "Young cow", "options": ["Calf", "Kid", "Lamb", "Foal"], "ans": "Calf"},
-        {"q": "Male pig", "options": ["Boar", "Bull", "Ram", "Stallion"], "ans": "Boar"},
-        {"q": "Disease in poultry", "options": ["Foot and mouth", "Newcastle", "Anthrax", "Rabies"], "ans": "Newcastle"},
-        {"q": "Feed for cattle", "options": ["Grains", "Fodder", "Pellets", "Mash"], "ans": "Fodder"},
-        {"q": "Rabbit meat is called", "options": ["Beef", "Mutton", "Chevon", "Rabbit"], "ans": "Rabbit"},
-        {"q": "Best breed for milk", "options": ["Sokoto Gudali", "Friesian", "WAD", "Yankasa"], "ans": "Friesian"},
-        {"q": "Incubation period for chicken", "options": ["18 days", "21 days", "28 days", "30 days"], "ans": "21 days"},
-        {"q": "Parasite in goats", "options": ["Tick", "Tsetse", "Mosquito", "Fly"], "ans": "Tick"}
-    ],
-    "Agriculture science": [
-        {"q": "Example of legume", "options": ["Maize", "Beans", "Rice", "Yam"], "ans": "Beans"},
-        {"q": "Tool for weeding", "options": ["Cutlass", "Hoe", "Spade", "Rake"], "ans": "Hoe"},
-        {"q": "Main nutrient in NPK", "options": ["Nitrogen", "Calcium", "Magnesium", "Sulphur"], "ans": "Nitrogen"},
-        {"q": "Soil with best drainage", "options": ["Clay", "Loam", "Sandy", "Peat"], "ans": "Sandy"},
-        {"q": "Crop pest", "options": ["Earthworm", "Termite", "Bee", "Butterfly"], "ans": "Termite"},
-        {"q": "Method of soil conservation", "options": ["Bush burning", "Crop rotation", "Overgrazing", "Deforestation"], "ans": "Crop rotation"},
-        {"q": "Cash crop in Nigeria", "options": ["Yam", "Cocoa", "Cassava", "Beans"], "ans": "Cocoa"},
-        {"q": "Farm implement for ploughing", "options": ["Sickle", "Plough", "Mattock", "Sprayer"], "ans": "Plough"},
-        {"q": "Organic fertilizer", "options": ["NPK", "Urea", "Manure", "SSP"], "ans": "Manure"},
-        {"q": "Planting season in Nigeria", "options": ["Dry season", "Rainy season", "Harmattan", "Winter"], "ans": "Rainy season"}
-    ],
-    "Further math": [
-        {"q": "Derivative of x^2", "options": ["x", "2x", "x^2", "2"], "ans": "2x"},
-        {"q": "Log10 100", "options": ["1", "2", "10", "100"], "ans": "2"},
-        {"q": "Sin 90 degrees", "options": ["0", "0.5", "1", "-1"], "ans": "1"},
-        {"q": "Integral of 2x dx", "options": ["x", "x^2", "2x^2", "2"], "ans": "x^2"},
-        {"q": "Matrix 1 2 3 4 determinant", "options": ["-2", "2", "10", "0"], "ans": "-2"},
-        {"q": "Complex number i squared", "options": ["1", "-1", "0", "i"], "ans": "-1"},
-        {"q": "Sum of AP 2,4,6", "options": ["10", "12", "14", "16"], "ans": "12"},
-        {"q": "Probability of head in coin", "options": ["0", "0.25", "0.5", "1"], "ans": "0.5"},
-        {"q": "nCr formula", "options": ["n!/r!", "n!/r!(n-r)!", "n!/(n-r)!", "n!r!"], "ans": "n!/r!(n-r)!"},
-        {"q": "Cos 0 degrees", "options": ["0", "0.5", "1", "-1"], "ans": "1"}
-    ],
-    "Electrical engineering": [
-        {"q": "SI unit of current", "options": ["Volt", "Ohm", "Ampere", "Watt"], "ans": "Ampere"},
-        {"q": "Device that stores charge", "options": ["Resistor", "Capacitor", "Inductor", "Diode"], "ans": "Capacitor"},
-        {"q": "Ohm's Law: V equals", "options": ["I/R", "IR", "I^2R", "R/I"], "ans": "IR"},
-        {"q": "Unit of resistance", "options": ["Volt", "Ampere", "Ohm", "Watt"], "ans": "Ohm"},
-        {"q": "AC stands for", "options": ["Alternating Current", "Armature Coil", "Applied Charge", "Ampere Current"], "ans": "Alternating Current"},
-        {"q": "Transformer changes", "options": ["Current to Voltage", "Voltage level", "AC to DC", "DC to AC"], "ans": "Voltage level"},
-        {"q": "Fuse is for", "options": ["Increase current", "Protection", "Store charge", "Measure voltage"], "ans": "Protection"},
-        {"q": "Color code for ground wire", "options": ["Red", "Black", "Green", "Blue"], "ans": "Green"},
-        {"q": "Semiconductor material", "options": ["Copper", "Silicon", "Aluminum", "Gold"], "ans": "Silicon"},
-        {"q": "Power formula", "options": ["VI", "V/I", "I/V", "V^2/I"], "ans": "VI"}
-    ]
-}
+def init_db():
+    with engine.connect() as conn:
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_users (id SERIAL PRIMARY KEY, username TEXT UNIQUE, coins INT DEFAULT 1000, created_at TIMESTAMP DEFAULT NOW());"))
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_aviator_rounds (id SERIAL PRIMARY KEY, crash_point FLOAT, status TEXT DEFAULT 'betting', created_at TIMESTAMP DEFAULT NOW());"))
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_aviator_bets (id SERIAL PRIMARY KEY, round_id INT, user_id INT, bet INT, cashout FLOAT, win INT, status TEXT DEFAULT 'flying', created_at TIMESTAMP DEFAULT NOW());"))
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_spin_rounds (id SERIAL PRIMARY KEY, status TEXT DEFAULT 'betting', total_white INT DEFAULT 0, total_green INT DEFAULT 0, winner TEXT, created_at TIMESTAMP DEFAULT NOW());"))
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_spin_bets (id SERIAL PRIMARY KEY, round_id INT, user_id INT, side TEXT, bet INT, win INT DEFAULT 0, created_at TIMESTAMP DEFAULT NOW());"))
+        conn.execute(sa.text("CREATE TABLE IF NOT EXISTS bw_virtual (id SERIAL PRIMARY KEY, league TEXT, home TEXT, away TEXT, home_score INT, away_score INT, status TEXT DEFAULT 'live', created_at TIMESTAMP DEFAULT NOW());"))
+        conn.commit()
+init_db()
 
-BASE = """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{title}}</title><style>
-*{box-sizing:border-box}
-body{font-family:Segoe UI;background:#0f3460;margin:0;padding:10px;color:white}
-.container{max-width:600px;margin:0 auto}
-.card{background:white;color:black;padding:15px;margin:10px 0;border-radius:10px}
-.btn{background:#28a745;color:white;padding:15px 10px;text-decoration:none;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:8px 0;text-align:center;font-weight:bold;border:none;width:100%;font-size:1rem;min-height:55px;word-break:break-word}
-.btn:hover{background:#218838}
-.option{background:#f0f2f5;padding:14px;margin:10px 0;border-radius:8px;border:1px solid #ddd;color:black;display:flex;align-items:flex-start;gap:10px}
-.option input{margin-top:4px;flex-shrink:0;width:18px;height:18px}
-.option span{flex:1;line-height:1.4}
-.q-nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;justify-content:center}
-.q-nav a{background:#2196f3;color:white;padding:8px 12px;border-radius:5px;text-decoration:none;font-weight:bold}
-.timer{background:#e94560;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;font-size:1.1rem}
-h2{font-size:1.3rem;text-align:center}
-</style></head><body><div class="container">{{content}}</div></body></html>"""
+BASE = """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{{title}}</title>
+<style>
+body{margin:0;background:#0a0a0a;color:white;font-family:Segoe UI}
+.header{background:#ff3d00;padding:12px;text-align:center;font-weight:900;position:sticky;top:0;z-index:100}
+.nav{display:flex;overflow-x:auto;background:#111;padding:6px;gap:6px;position:sticky;top:48px;z-index:99}
+.nav a{color:white;text-decoration:none;padding:8px 14px;background:#222;border-radius:20px;font-size:13px;white-space:nowrap}
+.card{background:#1a1a1a;padding:12px;margin:8px;border-radius:12px}
+.btn{background:#ff3d00;color:white;padding:10px;border:none;width:100%;border-radius:8px;font-weight:bold;margin:5px 0;cursor:pointer}
+.btn.green{background:#00c853}.btn.gray{background:#333}
+.motiz{font-size:10px;opacity:0.6;text-align:center;margin-top:10px}
+table{width:100%;font-size:12px} td,th{padding:6px;border-bottom:1px solid #222}
+</style></head><body>
+<div class="header">BET WAVE <span style="font-size:11px;font-weight:400">by MOTIZ</span></div>
+<div class="nav">
+<a href="/">🏠 Home</a><a href="/aviator">✈️ Aviator</a><a href="/mines">💣 Mines</a><a href="/spin">🎡 Spin</a><a href="/virtual">⚽ Virtual</a><a href="/instant">⚡ Instant League</a><a href="/crash">📈 Crash</a>
+</div>
+<div style="padding:8px">{{content}}</div>
+<div class="motiz">Created by MOTIZ | Bet Wave © 2026</div>
+<script>{{script}}</script>
+</body></html>"""
+
+def get_user():
+    uid=session.get('uid')
+    if not uid:
+        with DBSession() as db:
+            try:
+                u=db.execute(sa.text("SELECT * FROM bw_users ORDER BY id DESC LIMIT 1")).mappings().first()
+                if not u:
+                    db.execute(sa.text("INSERT INTO bw_users (username,coins) VALUES ('Player',1000)")); db.commit()
+                    u=db.execute(sa.text("SELECT * FROM bw_users ORDER BY id DESC LIMIT 1")).mappings().first()
+                session['uid']=u['id']; return dict(u)
+            except: db.rollback()
+    with DBSession() as db:
+        u=db.execute(sa.text("SELECT * FROM bw_users WHERE id=:id"),{"id":uid}).mappings().first()
+        if u: return dict(u)
+    return {"id":1,"username":"Player","coins":1000}
 
 @app.route('/')
 def home():
-    session.clear() # clear old exam data
-    subjects_html = "".join([f"<a class='btn' href=/exam/{s}>📚 {s} - 10 Questions</a>" for s in CBT_QUESTIONS.keys()])
-    content = f"<h2>✍️ MOTIZ CBT</h2><div class='card'><p><b>Total: 100 FREE Questions</b></p>{subjects_html}</div>"
-    return render_template_string(BASE, title="CBT Home", content=Markup(content))
+    user=get_user()
+    content=f"""
+    <div class="card" style="background:linear-gradient(135deg,#ff3d00,#8e2de2);text-align:center">
+    <h2>💰 {user['coins']} Coins</h2><p>Welcome to Bet Wave - MSport Style</p></div>
+    <div class="card"><h3>🔥 Popular</h3>
+    <a href="/aviator" class="btn">✈️ Aviator - Plane Going</a>
+    <a href="/mines" class="btn green">💣 Mines - 5x5 Multiplier</a>
+    <a href="/virtual" class="btn">⚽ Virtual Football</a>
+    <a href="/instant" class="btn gray">⚡ Instant League - Every 1min</a>
+    <a href="/crash" class="btn gray">📈 Crash - Like Aviator</a>
+    <a href="/spin" class="btn gray">🎡 Spin Wheel</a>
+    </div>
+    <div class="card"><h3>📊 Live Matches</h3><div id="live"></div></div>
+    <script>
+    async function loadLive(){{
+        let r=await fetch('/virtual/state'); let d=await r.json();
+        document.getElementById('live').innerHTML=d.matches.map(m=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #222"><span>${{m.home}} vs ${{m.away}}</span><span>${{m.home_score}}-${{m.away_score}} ${{m.status}}</span></div>`).join('');
+    }}
+    loadLive(); setInterval(loadLive,2000);
+    </script>
+    """
+    return render_template_string(BASE, title="Bet Wave", content=Markup(content), script="")
 
-@app.route('/exam/<subject>', methods=["GET","POST"])
-def take_exam(subject):
-    if subject not in CBT_QUESTIONS: return redirect("/")
+# ===== AVIATOR =====
+@app.route('/aviator')
+def aviator_page():
+    user=get_user()
+    content=f"""
+    <div class="card"><b>✈️ Aviator</b> - {user['coins']} coins <div id="info"></div></div>
+    <div style="background:black;height:220px;position:relative;border-radius:12px;margin:8px;overflow:hidden"><canvas id="c" style="width:100%;height:100%"></canvas><div id="mult" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:42px;font-weight:900">1.00x</div></div>
+    <div class="card"><input id="bet" type="number" value="50"><button id="betBtn" class="btn">BET</button><button id="cashBtn" class="btn green" style="display:none">CASHOUT <span id="cashInfo"></span></button><div id="status"></div></div>
+    <script>
+    let mult=1, flying=false, iv=null, trail=[], betAmt=0, betId=null;
+    const canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+    function rs(){{let r=canvas.getBoundingClientRect(); canvas.width=r.width*2; canvas.height=r.height*2;}} rs();
+    function draw(m){{ctx.fillStyle="#000"; ctx.fillRect(0,0,canvas.width,canvas.height); let maxW=canvas.width-80, maxH=canvas.height-80, prog=Math.min(m/15,1), x=30+prog*maxW, y=canvas.height-30-Math.pow(prog,0.7)*maxH; trail.push({{x,y}}); if(trail.length>40) trail.shift(); if(trail.length>1){{ctx.beginPath(); ctx.strokeStyle="#ff3d00"; ctx.lineWidth=5; ctx.moveTo(trail[0].x,trail[0].y); trail.forEach(p=>ctx.lineTo(p.x,p.y)); ctx.stroke();}} ctx.font="30px Arial"; ctx.fillText("✈️",x-15,y+8);}}
+    document.getElementById('betBtn').onclick=async()=>{{let b=parseInt(document.getElementById('bet').value); let r=await fetch('/aviator/bet',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{bet:b}})}}); let d=await r.json(); if(d.error){{alert(d.error);return;}} betAmt=b; betId=d.id; document.getElementById('betBtn').style.display='none'; document.getElementById('cashBtn').style.display='block';}};
+    document.getElementById('cashBtn').onclick=async()=>{{await fetch('/aviator/cashout',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{mult:mult}})}}); document.getElementById('betBtn').style.display='block'; document.getElementById('cashBtn').style.display='none';}};
+    async function sync(){{let r=await fetch('/aviator/state'); let s=await r.json(); document.getElementById('info').innerText=s.status+' '+(s.countdown||0)+'s'; document.getElementById('mult').innerText=s.multiplier.toFixed(2)+'x'+(s.status=='crashed'?' CRASHED':''); document.getElementById('mult').style.color=s.status=='crashed'?'red':'white'; if(s.status=='flying'){{if(!flying){{flying=true; mult=s.multiplier; iv=setInterval(()=>{{mult+=0.08+mult*0.02; document.getElementById('mult').innerText=mult.toFixed(2)+'x'; document.getElementById('cashInfo').innerText=mult.toFixed(2)+'x → '+Math.floor(betAmt*mult); draw(mult);}},100);}}}} else if(s.status=='betting'){{flying=false; if(iv) clearInterval(iv); mult=1; trail=[];}} setTimeout(sync,500);}} sync();
+    </script>
+    """
+    return render_template_string(BASE, title="Aviator", content=Markup(content), script="")
 
-    session_key = f"exam_{subject}"
+@app.route('/aviator/state')
+def aviator_state():
+    with DBSession() as db:
+        try:
+            rnd=db.execute(sa.text("SELECT * FROM bw_aviator_rounds ORDER BY id DESC LIMIT 1")).mappings().first()
+            now=datetime.now(pytz.utc)
+            if not rnd:
+                db.execute(sa.text("INSERT INTO bw_aviator_rounds (crash_point,status,created_at) VALUES (:c,'betting',NOW())"),{"c":random.uniform(1.2, 50)}); db.commit(); return jsonify({"status":"betting","multiplier":1,"countdown":10})
+            created=rnd['created_at']; 
+            if created.tzinfo is None: created=pytz.utc.localize(created)
+            elapsed=(now-created).total_seconds()
+            if rnd['status']=='betting':
+                if elapsed>=8: db.execute(sa.text("UPDATE bw_aviator_rounds SET status='flying', created_at=NOW() WHERE id=:id"),{"id":rnd['id']}); db.commit(); return jsonify({"status":"flying","multiplier":1,"countdown":0})
+                return jsonify({"status":"betting","multiplier":1,"countdown":int(8-elapsed)})
+            elif rnd['status']=='flying':
+                mult=1+elapsed*0.5+elapsed*elapsed*0.07
+                if mult>=rnd['crash_point']: db.execute(sa.text("UPDATE bw_aviator_rounds SET status='crashed', created_at=NOW() WHERE id=:id"),{"id":rnd['id']}); db.commit(); db.execute(sa.text("UPDATE bw_aviator_bets SET status='lost' WHERE status='flying'")); db.commit(); return jsonify({"status":"crashed","multiplier":rnd['crash_point'],"countdown":5})
+                return jsonify({"status":"flying","multiplier":mult,"countdown":0})
+            else:
+                if elapsed>=5: db.execute(sa.text("INSERT INTO bw_aviator_rounds (crash_point,status,created_at) VALUES (:c,'betting',NOW())"),{"c":random.uniform(1.2,80)}); db.commit(); return jsonify({"status":"betting","multiplier":1,"countdown":8})
+                return jsonify({"status":"crashed","multiplier":rnd['crash_point'],"countdown":int(5-elapsed)})
+        except: db.rollback(); return jsonify({"status":"betting","multiplier":1,"countdown":10})
 
-    if request.method == "GET":
-        questions = CBT_QUESTIONS[subject][:]
-        random.shuffle(questions)
-        session[session_key] = questions # SAVE SHUFFLED ORDER
-    else:
-        questions = session.get(session_key, CBT_QUESTIONS[subject]) # LOAD SAME ORDER
+@app.route('/aviator/bet', methods=["POST"])
+def aviator_bet():
+    user=get_user(); d=request.get_json(); bet=int(d.get('bet',50))
+    if user['coins']<bet: return jsonify({"error":"No coins"})
+    with DBSession() as db:
+        try:
+            rnd=db.execute(sa.text("SELECT * FROM bw_aviator_rounds WHERE status='betting' ORDER BY id DESC LIMIT 1")).mappings().first()
+            if not rnd: return jsonify({"error":"Bet closed"})
+            db.execute(sa.text("UPDATE bw_users SET coins=coins-:b WHERE id=:id"),{"b":bet,"id":user['id']})
+            db.execute(sa.text("INSERT INTO bw_aviator_bets (round_id,user_id,bet,status) VALUES (:rid,:uid,:b,'flying')"),{"rid":rnd['id'],"uid":user['id'],"b":bet}); db.commit()
+            nid=db.execute(sa.text("SELECT id FROM bw_aviator_bets WHERE user_id=:u ORDER BY id DESC LIMIT 1"),{"u":user['id']}).scalar()
+            session['abid']=nid; session['abet']=bet
+        except: db.rollback(); return jsonify({"error":"fail"})
+    return jsonify({"id":nid})
 
-    if request.method == "POST":
-        score = 0
-        for i,q in enumerate(questions):
-            user_ans = request.form.get(f"q{i}")
-            if user_ans and user_ans == q["ans"]: score += 1
-        percent = round((score/len(questions))*100,1)
-        grade = "A" if percent>=70 else "B" if percent>=60 else "C" if percent>=50 else "F"
-        session.pop(session_key, None) # clear after marking
-        content = f"<h2>📊 RESULT</h2><div class='card'><h3>{subject}</h3><p><b>Score: {score}/{len(questions)}</b></p><p><b>Percentage: {percent}%</b></p><p><b>Grade: {grade}</b></p><a class='btn' href=/>Back to Subjects</a></div>"
-        return render_template_string(BASE, title="Result", content=Markup(content))
+@app.route('/aviator/cashout', methods=["POST"])
+def aviator_cashout():
+    user=get_user(); d=request.get_json(); mult=float(d.get('mult',1))
+    aid=session.get('abid'); bet=session.get('abet',0)
+    with DBSession() as db:
+        try:
+            rnd=db.execute(sa.text("SELECT * FROM bw_aviator_rounds WHERE status='flying' ORDER BY id DESC LIMIT 1")).mappings().first()
+            if not rnd or mult>=rnd['crash_point']: return jsonify({"win":0})
+            win=int(bet*mult)
+            db.execute(sa.text("UPDATE bw_users SET coins=coins+:w WHERE id=:id"),{"w":win,"id":user['id']})
+            db.execute(sa.text("UPDATE bw_aviator_bets SET cashout=:c, win=:w, status='cashed' WHERE id=:id"),{"c":mult,"w":win,"id":aid}); db.commit()
+        except: db.rollback(); return jsonify({"win":0})
+    return jsonify({"win":win})
 
-    q_html = ""
-    q_nav = ""
-    for i,q in enumerate(questions):
-        options = "".join([f"<label class=option><input type=radio name=q{i} value=\"{opt}\"><span>{opt}</span></label>" for opt in q["options"]])
-        q_html += f"<div class=card id=q{i}><p><b>Question {i+1} of {len(questions)}</b></p><p>{q['q']}</p>{options}</div>"
-        q_nav += f"<a href=#q{i}>{i+1}</a>"
+# ===== MINES =====
+@app.route('/mines')
+def mines_page():
+    content="""
+    <div class="card"><h3>💣 Mines - Created by MOTIZ</h3><p>Pick tiles - Avoid bomb - Cashout anytime</p></div>
+    <div class="card" style="text-align:center"><div id="grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;max-width:300px;margin:auto"></div>
+    <p>Multiplier: <span id="mult">1.00x</span> | Next: <span id="next">1.23x</span></p>
+    <input id="betM" type="number" value="50"><button onclick="startM()" class="btn">Start Game</button><button id="cashM" onclick="cashM()" class="btn green" style="display:none">CASHOUT <span id="cashInfoM"></span></button><div id="statusM"></div></div>
+    <script>
+    let bombs=[], revealed=[], started=false, mult=1, bet=0;
+    function genBombs(){bombs=[]; while(bombs.length<5){let r=Math.floor(Math.random()*25); if(!bombs.includes(r)) bombs.push(r);}}
+    function render(){let g=document.getElementById('grid'); g.innerHTML=''; for(let i=0;i<25;i++){let d=document.createElement('div'); d.style.cssText='height:50px;background:#333;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer'; d.innerText=revealed.includes(i)?(bombs.includes(i)?'💣':'💎'):''; if(revealed.includes(i)){d.style.background=bombs.includes(i)?'#ff3d00':'#00c853';} d.onclick=()=>clickTile(i); g.appendChild(d);}}
+    function clickTile(i){if(!started||revealed.includes(i)) return; revealed.push(i); if(bombs.includes(i)){render(); document.getElementById('statusM').innerText='BOOM! Lost'; started=false; document.getElementById('cashM').style.display='none';} else {mult+=0.4+Math.random()*0.5; document.getElementById('mult').innerText=mult.toFixed(2)+'x'; document.getElementById('cashInfoM').innerText=Math.floor(bet*mult)+' coins'; render();}}
+    function startM(){bet=parseInt(document.getElementById('betM').value); genBombs(); revealed=[]; mult=1; started=true; document.getElementById('cashM').style.display='block'; render();}
+    function cashM(){alert('Cashed '+Math.floor(bet*mult)+' coins!'); started=false; document.getElementById('cashM').style.display='none';}
+    render();
+    </script>
+    """
+    return render_template_string(BASE, title="Mines", content=Markup(content), script="")
 
-    content = f"<div class='timer'>⏰ TIME: 10 Minutes</div><div class='q-nav'>{q_nav}</div><form method=POST><h2 style=color:white>{subject}</h2>{q_html}<button class='btn'>Submit Exam</button></form>"
-    return render_template_string(BASE, title=subject, content=Markup(content))
+# ===== VIRTUAL & INSTANT =====
+@app.route('/virtual')
+def virtual_page():
+    content="""<div class="card"><h3>⚽ Virtual Football</h3><div id="v"></div></div>
+    <script>
+    async function load(){let r=await fetch('/virtual/state'); let d=await r.json(); document.getElementById('v').innerHTML=d.matches.map(m=>`<div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid #222"><span><b>${m.home}</b> vs <b>${m.away}</b><br><small>${m.league}</small></span><span style="text-align:right">${m.home_score}-${m.away_score}<br><small>${m.status}</small><br><button onclick="betV('${m.home}')" class="btn" style="padding:4px 8px;font-size:11px;width:auto;display:inline-block">${(Math.random()*2+1.5).toFixed(2)}</button></span></div>`).join('');}
+    load(); setInterval(load,3000);
+    function betV(t){alert('Bet placed on '+t+' - Virtual odds like MSport!');}
+    </script>"""
+    return render_template_string(BASE, title="Virtual", content=Markup(content), script="")
 
-if __name__ == '__main__':
-    print("===================================")
-    print("MOTIZ CBT SERVER STARTED v2.2")
-    print("100 FREE QUESTIONS READY")
-    print("Open IP:5000 in Chrome")
-    print("===================================")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+@app.route('/virtual/state')
+def virtual_state():
+    teams=[("Man City","Arsenal"),("Chelsea","Liverpool"),("Barcelona","Real Madrid"),("Bayern","Dortmund"),("PSG","Marseille"),("Inter","AC Milan")]
+    matches=[]
+    for home,away in teams:
+        matches.append({"league":"Premier League Virtual","home":home,"away":away,"home_score":random.randint(0,3),"away_score":random.randint(0,3),"status":random.choice(['Live 23\'','Live 67\'','HT','FT'])})
+    return jsonify({"matches":matches})
+
+@app.route('/instant')
+def instant_page():
+    content="""<div class="card"><h3>⚡ Instant League - New table every 60s</h3><table id="table"><tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>Pts</th></tr></table></div>
+    <script>
+    function genTable(){
+        let teams=["City","Arsenal","Chelsea","Liverpool","United","Tottenham","Newcastle","Brighton"]; let html='<tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>Pts</th></tr>';
+        teams.sort(()=>Math.random()-0.5).forEach((t,i)=>{html+=`<tr><td>${i+1}</td><td>${t}</td><td>10</td><td>${Math.floor(Math.random()*8)}</td><td>${Math.floor(Math.random()*20+10)}</td></tr>`});
+        document.getElementById('table').innerHTML=html;
+    }
+    genTable(); setInterval(genTable,10000);
+    </script>"""
+    return render_template_string(BASE, title="Instant", content=Markup(content), script="")
+
+@app.route('/spin')
+def spin_simple():
+    return redirect('/')
+
+@app.route('/crash')
+def crash_page():
+    return redirect('/aviator')
+
+if __name__=='__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)))
